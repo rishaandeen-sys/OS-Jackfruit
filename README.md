@@ -120,59 +120,51 @@ dmesg | tail    # shows: Module unloaded
 
 ### Screenshot 1 — Multi-container supervision
 
-![Supervisor Started](OS-ss/Task 1 (Screenshot 1).png)
+![Supervisor Started](OS-ss/task1_1.png)
 
-The supervisor process starts, binds the UNIX socket at `/tmp/mini_runtime.sock`, and enters its event loop waiting for CLI connections.
+The supervisor process starts and initializes the container runtime.
 
-![Two Containers Running](OS-ss/Task 1 (Screenshot 2).png)
+![Two Containers Running](OS-ss/task1_2.png)
 
-Two containers running under one supervisor. `alpha` and `beta` are both launched and tracked concurrently. The `engine ps` command confirms both are in running state with defined memory limits.
+Two containers (`alpha` and `beta`) are running under the supervisor.
 
-![Namespace Isolation](OS-ss/Task 2.png)
+![Namespace Isolation](OS-ss/task2.png)
 
-PID and UTS namespace isolation confirmed. Each container runs independently and is isolated from the host system.
+Each container operates in its own PID and UTS namespace.
 
-![Filesystem Isolation](OS-ss/Task 3.png)
+![Filesystem Isolation](OS-ss/task3.png)
 
-Filesystem isolation per container. Files created in one container are not visible in another.
+Each container has its own isolated filesystem.
 
 ---
 
 ### Screenshot 2 — Metadata tracking
 
-![Metadata 1](OS-ss/Task 4 (Screenshot 1).png)
+![Metadata 1](OS-ss/task4_1.png)
 
-Container metadata is tracked by the supervisor including process IDs, states, and memory limits.
+Container metadata such as PID and state is tracked.
 
-![Metadata 2](OS-ss/Task 4 (Screenshot 2).png)
+![Metadata 2](OS-ss/task4_2.png)
 
-The metadata table updates dynamically as containers are started or stopped.
+Metadata updates dynamically as containers run.
 
 ---
 
 ### Screenshot 3 — Resource control
 
-![Resource Control](OS-ss/Task 5.png)
+![Resource Control](OS-ss/task5.png)
 
-Containers are launched with defined CPU and memory limits ensuring controlled execution.
+Containers run with defined CPU and memory limits.
 
 ---
 
 ### Screenshot 4 — Memory monitoring
 
-![Memory Monitoring 1](OS-ss/Task 6 (Screenshot 1).png)
+![Memory 1](OS-ss/task6_1.png)
 
-Kernel module tracks memory usage of containers.
+![Memory 2](OS-ss/task6_2.png)
 
-![Memory Monitoring 2](OS-ss/Task 6 (Screenshot 2).png)
-
-Memory usage is continuously monitored for each running container.
-
-![Memory Monitoring 3](OS-ss/Task 6 (Screenshot 3).png)
-
-Limits are enforced to prevent excessive memory consumption.
----
-
+![Memory 3](OS-ss/task6_3.png)
 ## 4. Engineering Analysis
 
 ### 4.1 Isolation Mechanisms
@@ -239,7 +231,7 @@ Linux CFS tracks **virtual runtime** per process — the process with the lowest
 
 Two containers ran `cpu_hog` simultaneously for 10 seconds — `c1` at nice=0, `c2` at nice=10.
 
-![CPU Priority Experiment](screenshots/task5_cpu_priority.png)
+![CPU Priority Experiment](OS-ss/task5.png)
 
 **What it shows:** `c1` (nice=0) and `c2` (nice=10) are started. `c1` finishes its full 10-second workload significantly ahead in accumulated iterations because CFS allocated it ≈90% of CPU time.
 
@@ -256,7 +248,7 @@ The logs retrieved with `engine logs c1` and `engine logs c2` confirm this — `
 
 `cpu_hog` (CPU-bound) and `io_pulse` (I/O-bound, 200ms sleep between writes) ran simultaneously at nice=0.
 
-![CPU vs IO Experiment](screenshots/task5_cpu_vs_io.png)
+![CPU vs IO Experiment](OS-ss/task6_1.png)
 
 **What it shows:** Despite `cpu_hog` running 9 continuous seconds and saturating the CPU, `io_pulse` completed all 20 iterations fully on schedule with no missed or delayed writes. The `engine logs cpu` output shows `cpu_hog` ran uninterrupted for the full 10s. The `engine logs io` output shows `io_pulse` wrote all 20 iterations cleanly.
 
