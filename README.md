@@ -118,114 +118,59 @@ dmesg | tail    # shows: Module unloaded
 
 ## 3. Demo with Screenshots
 
----
-
 ### Screenshot 1 — Multi-container supervision
 
-![Supervisor Started](screenshots/task1_supervisor_running.png)
+![Supervisor Started](OS-ss/Task 1 (Screenshot 1).png)
 
-**The supervisor process starts**, binds the UNIX socket at `/tmp/mini_runtime.sock`, and enters its event loop waiting for CLI connections.
+The supervisor process starts, binds the UNIX socket at `/tmp/mini_runtime.sock`, and enters its event loop waiting for CLI connections.
 
-![Two Containers Running](screenshots/task1_multiple_containers.png)
+![Two Containers Running](OS-ss/Task 1 (Screenshot 2).png)
 
-**Two containers running under one supervisor.** `alpha` (PID 3299) and `beta` (PID 3307) are both launched and tracked concurrently. `engine ps` confirms both are in `running` state with their respective soft (40 MiB) and hard (64 MiB) memory limits recorded in the supervisor's metadata table.
+Two containers running under one supervisor. `alpha` and `beta` are both launched and tracked concurrently. The `engine ps` command confirms both are in running state with defined memory limits.
 
-![Namespace Isolation](screenshots/task1_namespace_isolation.png)
+![Namespace Isolation](OS-ss/Task 2.png)
 
-**PID and UTS namespace isolation confirmed.** `nsenter` enters container `alpha`'s namespaces. Inside, `ps` shows only the container's own processes (isolated PID namespace) and `hostname` returns `alpha` (isolated UTS namespace) — completely separate from the host.
+PID and UTS namespace isolation confirmed. Each container runs independently and is isolated from the host system.
 
-![Filesystem Isolation](screenshots/task1_filesystem_isolation.png)
+![Filesystem Isolation](OS-ss/Task 3.png)
 
-**Filesystem isolation per container.** A file `hello` written to `rootfs-alpha/` is visible there but absent from `rootfs-beta/`, confirming each container has its own independent writable rootfs copy.
+Filesystem isolation per container. Files created in one container are not visible in another.
 
 ---
 
 ### Screenshot 2 — Metadata tracking
 
-![Container Lifecycle](screenshots/task1_container_lifecycle.png)
+![Metadata 1](OS-ss/Task 4 (Screenshot 1).png)
 
-**`engine ps` showing live metadata tracking.** After `engine stop alpha`, the supervisor updates `alpha`'s state to `stopped` while `beta` and `test` remain `running`. The table shows all tracked fields: container ID, host PID, state, exit code, and configured memory limits — all maintained under a mutex-protected metadata table inside the supervisor.
+Container metadata is tracked by the supervisor including process IDs, states, and memory limits.
 
----
+![Metadata 2](OS-ss/Task 4 (Screenshot 2).png)
 
-### Screenshot 3 — Bounded-buffer logging
-
-![Logging Output via run](screenshots/task3_logging_output.png)
-
-**Log pipeline in action via `engine run`.** `engine run logtest ./rootfs-alpha "/cpu_hog 5"` launches a container and the supervisor's pipeline captures all stdout through the producer thread → bounded buffer → consumer thread path. `engine logs logtest` retrieves all 6 lines of captured output from `logs/logtest.log`, confirming the full pipeline is working.
-
-![Concurrent Logging](screenshots/task3_concurrent_logging.png)
-
-**Concurrent per-container logging.** Two containers (`c1` and `c2`) each ran `cpu_hog` simultaneously. Their stdout was routed through separate producer threads into the shared bounded buffer and written to independent log files. `engine logs c1` and `engine logs c2` show complete, uninterleaved output for each container — no data loss or corruption.
-
-![Log Files Directory](screenshots/task3_log_files.png)
-
-**Persistent per-container log files.** The `logs/` directory contains a separate `.log` file for every container that ran (`alpha.log`, `fg.log`, `logtest.log`, `test1.log`, `test.log`), each written exclusively by the consumer thread routing on container ID.
+The metadata table updates dynamically as containers are started or stopped.
 
 ---
 
-### Screenshot 4 — CLI and IPC
+### Screenshot 3 — Resource control
 
-![CLI Commands](screenshots/task2_cli_commands.png)
+![Resource Control](OS-ss/Task 5.png)
 
-**All CLI commands exercised over the UNIX socket control channel (Path B IPC).** In sequence: `start` launches `alpha` and returns immediately; `ps` lists metadata; `run` launches `test1` with `/bin/echo hello`, blocks until exit, and returns the final state; `logs test1` retrieves the captured output (`hello`) streamed back through the socket; `stop beta` terminates the container. Every command is a short-lived client process that connects to `/tmp/mini_runtime.sock`, sends a `control_request_t`, and receives a `control_response_t` — a completely separate IPC mechanism from the logging pipes.
-
-![Supervisor Shutdown](screenshots/task2_supervisor_shutdown.png)
-
-**Supervisor receiving and responding to CLI commands, then shutting down cleanly.** The supervisor prints each accepted command's result in real time. On Ctrl-C (SIGINT), it prints `[supervisor] shutting down...` and then `[supervisor] clean exit`, confirming the control channel, signal handling, and orderly teardown all work correctly.
+Containers are launched with defined CPU and memory limits ensuring controlled execution.
 
 ---
 
-### Screenshot 5 — Soft-limit warning
+### Screenshot 4 — Memory monitoring
 
-![Soft and Hard Limits dmesg](screenshots/task4_soft_hard_limits.png)
+![Memory Monitoring 1](OS-ss/Task 6 (Screenshot 1).png)
 
-**`dmesg` showing the soft-limit warning event.** Container `memtest` (PID 4082) is registered with soft=41943040 bytes (40 MiB) and hard=62914560 bytes (60 MiB). When the kernel module's 1-second timer detects RSS=42569728 bytes exceeding the soft limit, it logs `SOFT LIMIT container=memtest pid=4082` — a one-time warning emitted by `log_soft_limit_event()` in the kernel module.
+Kernel module tracks memory usage of containers.
 
----
+![Memory Monitoring 2](OS-ss/Task 6 (Screenshot 2).png)
 
-### Screenshot 6 — Hard-limit enforcement
+Memory usage is continuously monitored for each running container.
 
-![Hard Limit dmesg](screenshots/task4_soft_hard_limits.png)
+![Memory Monitoring 3](OS-ss/Task 6 (Screenshot 3).png)
 
-**`dmesg` showing the hard-limit kill event** (same screen as Screenshot 5, lower line). When the timer next detects RSS=67710976 bytes exceeding the hard limit of 62914560, it calls `kill_process()` which sends SIGKILL via `send_sig()` in kernel space.
-
-![Hard Limit Killed State](screenshots/task4_hard_limit_killed.png)
-
-**Supervisor metadata reflecting the hard-limit kill.** After the kernel module sends SIGKILL, the supervisor receives SIGCHLD, reaps the child, and classifies the termination as `hard_limit_killed` — because the exit signal was SIGKILL and `stop_requested` was not set (it was not stopped via `engine stop`). `engine ps` confirms state=`hard_limit_killed` for `memtest`.
-
-![Device Creation](screenshots/task4_device_creation.png)
-
-**`/dev/container_monitor` created on module load.** `sudo insmod monitor.ko` creates the character device (major 235). The supervisor opens this device and uses `ioctl(MONITOR_REGISTER)` to hand each container's PID and memory limits to the kernel module at launch time.
-
----
-
-### Screenshot 7 — Scheduling experiment
-
-![CPU Priority Experiment](screenshots/task5_cpu_priority.png)
-
-**Experiment 1: Two CPU-bound containers at different nice values.** Container `c1` runs with `--nice 0` (default CFS weight ≈1024) and `c2` runs with `--nice 10` (CFS weight ≈110). Both run the same `cpu_hog` workload for 10 seconds. The logs retrieved afterwards show `c1` accumulating far more iterations per second than `c2`, reflecting the scheduler allocating CPU proportional to weight: c1 gets ≈90%, c2 gets ≈10% of CPU time.
-
-![CPU vs IO Experiment](screenshots/task5_cpu_vs_io.png)
-
-**Experiment 2: CPU-bound vs I/O-bound at equal priority.** `cpu_hog` (CPU-bound) and `io_pulse` (I/O-bound, 200ms sleep between writes) run concurrently at nice=0. Despite `cpu_hog` saturating the CPU, `io_pulse` completes all 20 iterations on schedule without any delay. CFS immediately schedules `io_pulse` when it wakes from sleep because its virtual runtime is far below `cpu_hog`'s — demonstrating CFS's built-in responsiveness for I/O-bound workloads.
-
----
-
-### Screenshot 8 — Clean teardown
-
-![No Zombies](screenshots/task6_no_zombies.png)
-
-**No zombie processes after container exit.** `ps aux | grep defunct` returns only the grep process itself — zero `[defunct]` entries. The supervisor calls `waitpid(-1, &status, WNOHANG)` in its main loop on every iteration and on every SIGCHLD, reaping all children promptly.
-
-![Supervisor Clean Exit](screenshots/task6_supervisor_cleanup.png)
-
-**All containers reaped and threads joined on supervisor shutdown.** The supervisor prints exit notifications for every container (`c1`, `c2`, `cpu`, `io`) as they are reaped. Then `[supervisor] shutting down...` is followed by `[supervisor] clean exit` — confirming all producer threads were joined, the bounded buffer was drained, and the consumer thread exited cleanly.
-
-![Kernel Module Cleanup](screenshots/task6_kernel_cleanup.png)
-
-**Kernel module frees all list entries on unload.** `dmesg` shows each container being registered, then either auto-removed when its process exited or explicitly unregistered via `MONITOR_UNREGISTER ioctl`. The final line `Module unloaded.` confirms `module_exit` iterated the linked list and freed every remaining `monitored_entry` node with no memory leaks.
-
+Limits are enforced to prevent excessive memory consumption.
 ---
 
 ## 4. Engineering Analysis
